@@ -1091,7 +1091,7 @@ function removeLine(id) { lines=lines.filter(l=>l.id!==id); renderLines(); calcT
 function renderLines() {
   $('nv-lines').innerHTML = lines.map(l=>{
     const sub = (l.cant||0)*(l.precio||0);
-    const opts = productos.map(p=>`<option value="${p.SKU}" ${p.SKU===l.sku?'selected':''}>${p.SKU} — ${p.Nombre}</option>`).join('');
+    const opts = productos.map(p=>`<option value="${p.SKU}" ${String(p.SKU)===String(l.sku)?'selected':''}>${p.SKU} — ${p.Nombre}</option>`).join('');
     return `<div class="pline" data-lid="${l.id}">
       <select class="fi" onchange="onSku(${l.id},this.value)">
         <option value="">Seleccionar producto...</option>${opts}
@@ -1107,7 +1107,7 @@ function renderLines() {
 }
 
 function onSku(id, sku) {
-  const p = productos.find(x=>x.SKU===sku);
+  const p = productos.find(x=>String(x.SKU)===String(sku));
   const tp = getToggle('tg-precio');
   const line = lines.find(l=>l.id===id);
   if(line){ line.sku=sku; if(p) line.precio=tp==='Mayorista'?(parseFloat(p.Precio_Mayorista)||0):(parseFloat(p.Precio_Detal)||0); }
