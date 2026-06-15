@@ -597,7 +597,7 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
     <section class="sc" id="sc-inv">
       <div class="sh">
         <span class="sh-t">Stock actual</span>
-        <button class="btn btn-p btn-sm" onclick="$('com-fecha').value=today();openModal('modal-compra')">+ Compra</button>
+        <button class="btn btn-p btn-sm" onclick="openCompra()">+ Compra</button>
       </div>
       <div class="card" id="inv-list"><div class="ld"><div class="sp"></div></div></div>
     </section>
@@ -707,15 +707,8 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
       <div class="fg"><label class="fl">Fecha</label><input type="date" id="com-fecha" class="fi"></div>
       <div class="fg"><label class="fl">Proveedor</label><input id="com-prov" class="fi" placeholder="Nombre proveedor"></div>
     </div>
-    <div class="fg"><label class="fl">SKU</label>
-      <select id="com-sku" class="fi" onchange="onComSku()">
-        <option value="">Seleccionar producto...</option>
-      </select>
-    </div>
-    <div class="frow">
-      <div class="fg"><label class="fl">Cantidad</label><input id="com-cant" class="fi" type="number" min="1" placeholder="0" oninput="calcComTot()"></div>
-      <div class="fg"><label class="fl">Costo unitario</label><input id="com-cost" class="fi" type="number" placeholder="0" oninput="calcComTot()"></div>
-    </div>
+    <div id="com-lines"></div>
+    <button class="btn btn-g" onclick="addComLine()" style="margin-bottom:10px;font-size:13px">+ Agregar producto</button>
     <div class="card" style="margin-bottom:8px">
       <div class="stat-l">Total compra</div>
       <div class="stat-v" id="com-tot">$0</div>
@@ -1788,32 +1781,76 @@ async function loadInv() {
     }).join('');
 }
 
-function onComSku() {
+let comLines = [];
+let comLid = 0;
+
+function openCompra() {
+  comLines = [{id: ++comLid, sku:'', cant:1, cost:0}];
+  $('com-fecha').value = today();
+  $('com-prov').value = '';
+  $('com-ref').value = '';
+  renderComLines();
+  openModal('modal-compra');
+}
+
+function addComLine() {
+  comLines.push({id: ++comLid, sku:'', cant:1, cost:0});
+  renderComLines();
+}
+
+function removeComLine(id) {
+  if(comLines.length===1) return;
+  comLines = comLines.filter(l=>l.id!==id);
+  renderComLines();
+}
+
+function renderComLines() {
+  $('com-lines').innerHTML = comLines.map(l=>{
+    const opts = productos.map(p=>`<option value="${p.SKU}" ${String(p.SKU)===String(l.sku)?'selected':''}>${p.SKU} — ${p.Nombre}</option>`).join('');
+    const sub = (l.cant||0)*(l.cost||0);
+    return `<div style="border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px">
+      <select class="fi" style="margin-bottom:6px" onchange="onComSkuL(${l.id},this.value)">
+        <option value="">Seleccionar producto...</option>${opts}
+      </select>
+      <div class="pline-r">
+        <input class="fi" type="number" min="1" value="${l.cant}" placeholder="Cant" oninput="onComLineF(${l.id},'cant',this.value)">
+        <input class="fi" type="number" value="${l.cost||''}" placeholder="Costo unit." oninput="onComLineF(${l.id},'cost',this.value)">
+        <span class="sub-amt">${fCOP(sub)}</span>
+        ${comLines.length>1?`<button class="rm-btn" onclick="removeComLine(${l.id})">×</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  calcComTot();
+}
+
+function onComSkuL(id, sku) {
+  const l=comLines.find(x=>x.id===id); if(l) l.sku=sku;
+  renderComLines();
+}
+
+function onComLineF(id, field, val) {
+  const l=comLines.find(x=>x.id===id); if(l) l[field]=parseFloat(val)||0;
   calcComTot();
 }
 
 function calcComTot() {
-  const cant=parseFloat($('com-cant').value)||0;
-  const cost=parseFloat($('com-cost').value)||0;
-  $('com-tot').textContent=fCOP(cant*cost);
+  const tot=comLines.reduce((s,l)=>s+(l.cant||0)*(l.cost||0),0);
+  $('com-tot').textContent=fCOP(tot);
 }
 
 async function submitCompra() {
-  const sku=$('com-sku').value;
-  const cant=parseFloat($('com-cant').value);
-  const cost=parseFloat($('com-cost').value);
-  if(!sku) return toast('Selecciona un SKU',true);
-  if(!cant||cant<=0) return toast('Ingresa una cantidad válida',true);
-  if(!cost||cost<=0) return toast('Ingresa un costo unitario válido',true);
+  if(!comLines.every(l=>l.sku)) return toast('Selecciona SKU en todos los productos',true);
+  if(!comLines.every(l=>l.cant>0)) return toast('Ingresa cantidad válida en todos',true);
+  if(!comLines.every(l=>l.cost>0)) return toast('Ingresa costo en todos los productos',true);
   showLoad(true);
   const r=await api('saveCompra',{
     fecha:$('com-fecha').value||today(),
     proveedor:$('com-prov').value.trim(),
-    sku, cantidad:cant, costo_unitario:cost,
-    referencia_factura_proveedor:$('com-ref').value.trim()
+    referencia_factura_proveedor:$('com-ref').value.trim(),
+    productos:comLines.map(l=>({sku:l.sku, cantidad:l.cant, costo_unitario:l.cost}))
   });
   showLoad(false);
-  if(r.success){ toast('Compra registrada ✓'); closeModal('modal-compra'); loadInv(); $('com-cant').value=''; $('com-cost').value=''; $('com-tot').textContent='$0'; }
+  if(r.success){ toast(`${r.saved} producto(s) registrado(s) ✓`); closeModal('modal-compra'); loadInv(); }
   else toast(r.error||'Error',true);
 }
 
