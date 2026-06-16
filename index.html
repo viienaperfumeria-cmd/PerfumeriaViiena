@@ -103,6 +103,11 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .tg{display:flex;background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
 .to{flex:1;padding:10px 0;text-align:center;font-size:13px;font-weight:600;color:var(--gm);background:none;border:none;cursor:pointer;transition:.15s;font-family:var(--fb)}
 .to.on{background:var(--gd);color:var(--ws)}
+.vp{flex-shrink:0;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:transparent;color:var(--gm);font-size:11px;font-weight:600;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
+.vp.on.vp-pend{background:#1E1E24;border-color:#808090;color:#b0b0c0}
+.vp.on.vp-entr{background:#0C1E18;border-color:#4CAF7A;color:#4CAF7A}
+.vp.on.vp-dev{background:#1E0C0C;border-color:#E87070;color:#E87070}
+.vp.on.vp-canc{background:#161616;border-color:#606060;color:#909090}
 
 /* ── BUTTONS ───────────────────────────────────────────────────── */
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:12px;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:.15s;width:100%;margin-top:8px}
@@ -501,14 +506,20 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
             </select>
           </div>
         </div>
-        <select id="v-epedido" class="fi" style="margin-bottom:12px" onchange="loadVentas()">
-          <option value="">Todos los estados</option>
-          <option value="Pendiente">Pendiente</option>
-          <option value="Entregado">Entregado</option>
-          <option value="Garantia">Garantía</option>
-          <option value="Devolucion">Devolución</option>
-          <option value="Cancelado">Cancelado</option>
-        </select>
+        <div id="v-estados" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <button class="vp vp-pend" data-v="Pendiente"  onclick="togEstadoPill(this)">Pendiente</button>
+          <button class="vp vp-entr" data-v="Entregado"  onclick="togEstadoPill(this)">Entregado</button>
+          <button class="vp vp-dev"  data-v="Devolucion" onclick="togEstadoPill(this)">Devolución</button>
+          <button class="vp vp-canc" data-v="Cancelado"  onclick="togEstadoPill(this)">Cancelado</button>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="tg" id="tg-v-ciudad" style="margin-bottom:0">
+            <button class="to on" data-v=""         onclick="togVCiudad(this)">Todos</button>
+            <button class="to"    data-v="medellin" onclick="togVCiudad(this)">Medellín</button>
+            <button class="to"    data-v="nacional" onclick="togVCiudad(this)">Nacional</button>
+          </div>
+          <button onclick="downloadVentasCSV()" style="background:transparent;border:1px solid var(--bd);border-radius:10px;color:var(--gm);font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;flex-shrink:0">⬇ Excel</button>
+        </div>
         <div id="v-list"><div class="ld"><div class="sp"></div></div></div>
       </div>
 
@@ -719,6 +730,16 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   </div>
 </div>
 
+<div class="ov h" id="modal-confirm">
+  <div class="modal">
+    <div class="mh"></div>
+    <div class="mt" id="confirm-title">¿Confirmar acción?</div>
+    <div id="confirm-msg" style="font-size:13px;color:var(--gm);margin-bottom:20px;line-height:1.5"></div>
+    <button class="btn btn-p" id="confirm-ok">Confirmar</button>
+    <button class="btn btn-g" onclick="closeModal('modal-confirm')">Cancelar</button>
+  </div>
+</div>
+
 <!-- Domicilio edit -->
 <div class="ov h" id="modal-dom-edit">
   <div class="modal">
@@ -862,7 +883,10 @@ function refreshScreen() {
 function applyFilter(screen, type, val) {
   goto(screen);
   setTimeout(() => {
-    if(type==='ep') { $('v-epedido').value=val; loadVentas(); }
+    if(type==='ep') {
+      document.querySelectorAll('#v-estados .vp').forEach(b=>b.classList.toggle('on', b.dataset.v===val));
+      renderVentasList();
+    }
   }, 300);
 }
 
@@ -1211,7 +1235,6 @@ async function loadVentas() {
   const params={};
   if($('v-fecha').value){ params.fecha_inicio=$('v-fecha').value; params.fecha_fin=$('v-fecha').value; }
   if($('v-epago').value) params.estado_pago=$('v-epago').value;
-  if($('v-epedido').value) params.estado_pedido=$('v-epedido').value;
 
   const r=await api('getVentas',params);
   if(!r.success){ $('v-list').innerHTML=`<div class="ld" style="color:#E87070">${r.error}</div>`; return; }
@@ -1219,12 +1242,29 @@ async function loadVentas() {
   renderVentasList();
 }
 
-// Renderiza la lista aplicando el buscador local (cliente / teléfono / FAC)
-function renderVentasList() {
+function togVCiudad(btn) {
+  $('tg-v-ciudad').querySelectorAll('.to').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderVentasList();
+}
+function togEstadoPill(btn) {
+  btn.classList.toggle('on');
+  renderVentasList();
+}
+const normCity = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+function getVentasFiltradas() {
   const q=($('v-q').value||'').trim().toLowerCase();
-  const list=q
-    ? _ventas.filter(v=>(v.Cliente||'').toLowerCase().includes(q)||String(v.Telefono||'').includes(q)||(v.ID_Factura||'').toLowerCase().includes(q))
-    : _ventas;
+  const ciudad=$('tg-v-ciudad')?.querySelector('.to.on')?.dataset.v||'';
+  const activos=[...(document.querySelectorAll('#v-estados .vp.on')||[])].map(b=>b.dataset.v);
+  let list=_ventas;
+  if(q) list=list.filter(v=>(v.Cliente||'').toLowerCase().includes(q)||String(v.Telefono||'').includes(q)||(v.ID_Factura||'').toLowerCase().includes(q));
+  if(activos.length) list=list.filter(v=>activos.includes(v.Estado_Pedido));
+  if(ciudad==='medellin') list=list.filter(v=>normCity(v.Ciudad)==='medellin');
+  if(ciudad==='nacional') list=list.filter(v=>normCity(v.Ciudad)!=='medellin'&&(v.Ciudad||'').trim()!=='');
+  return list;
+}
+function renderVentasList() {
+  const list=getVentasFiltradas();
   if(!list.length){ $('v-list').innerHTML='<div class="ld">No hay ventas para estos filtros</div>'; return; }
   $('v-list').innerHTML = list.map(v=>`
     <div class="vc" onclick="showVD('${v.ID_Factura}')">
@@ -1233,6 +1273,49 @@ function renderVentasList() {
       <div class="vc-mt">${v.Ciudad||''} ${v.Mensajero?'· '+v.Mensajero:''}</div>
       <div class="vc-ft"><span class="bdg ${badgePedido(v.Estado_Pedido)}">${v.Estado_Pedido}</span><span class="vc-tot">${fCOP(v.Total_Factura)}</span></div>
     </div>`).join('');
+}
+function downloadVentasCSV() {
+  const list=getVentasFiltradas();
+  if(!list.length){ toast('No hay ventas para exportar',true); return; }
+  const heads=['Factura','Fecha','Cliente','Teléfono','Ciudad','Dirección','Mensajero','Productos','Estado Pago','Dom ($)','Subtotal','Total','Estado Pedido','Observaciones'];
+  const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const rows=list.map(v=>{
+    const prods=(v.productos||[]).map(p=>(p.SKU||'')+'×'+(p.Cantidad||1)).join(' | ');
+    return [v.ID_Factura,v.Fecha,v.Cliente,v.Telefono,v.Ciudad,v.Barrio_Direccion,v.Mensajero,prods,v.Estado_Pago,v.Costo_Domicilio,v.Subtotal_Productos,v.Total_Factura,v.Estado_Pedido,v.Observaciones].map(esc).join(',');
+  });
+  const csv='﻿'+heads.map(esc).join(',')+'\n'+rows.join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='viiena_ventas_'+today()+'.csv';
+  a.click();
+  toast(`${list.length} ventas exportadas ✓`);
+}
+function customConfirm(title, msg) {
+  return new Promise(resolve => {
+    $('confirm-title').textContent = title;
+    $('confirm-msg').textContent = msg;
+    const btn = $('confirm-ok');
+    const handler = () => { btn.removeEventListener('click', handler); closeModal('modal-confirm'); resolve(true); };
+    btn.addEventListener('click', handler);
+    const ov = $('modal-confirm');
+    const cancel = () => { ov.removeEventListener('click', cancel); btn.removeEventListener('click', handler); resolve(false); };
+    ov.addEventListener('click', e => { if(e.target===ov) cancel(); });
+    openModal('modal-confirm');
+  });
+}
+async function anularVenta(id) {
+  const v=_ventas.find(x=>x.ID_Factura===id);
+  const quien=v&&v.Cliente?` de ${v.Cliente}`:'';
+  const ok = await customConfirm(
+    `Anular pedido ${id}`,
+    `Se marca como Cancelado: el producto vuelve a bodega y sale de ventas y deudores. Podrás reactivarlo después si fue un error.`
+  );
+  if(!ok) return;
+  showLoad(true);
+  const r=await api('updateVenta',{id_factura:id,updates:{Estado_Pedido:'Cancelado'}});
+  showLoad(false);
+  if(r.success){ toast('Pedido anulado ✓'); closeModal('modal-vd'); loadVentas(); }
+  else toast(r.error||'Error al anular',true);
 }
 
 function switchVTab(t) {
