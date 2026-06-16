@@ -469,6 +469,7 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
           <input id="nv-ref" class="fi" placeholder="Nequi, Daviplata, transferencia...">
         </div>
         <div class="fg"><label class="fl">Observaciones</label><textarea id="nv-obs" class="fi" placeholder="Instrucciones de entrega, referencias, etc."></textarea></div>
+        <div class="fg"><label class="fl">Fecha límite de pago (opcional)</label><input type="date" id="nv-flp" class="fi"></div>
 
         <div class="tot-bar">
           <div>
@@ -1061,7 +1062,7 @@ function initNV() {
   $('nv-form').style.display = 'block';
   lines = [{ id:++lid, sku:'', cant:1, precio:0 }];
   // Reset form
-  ['nv-cli','nv-tel','nv-ciu','nv-dir','nv-ced','nv-men','nv-obs','nv-ref'].forEach(id=>{ const el=$(id); if(el)el.value=''; });
+  ['nv-cli','nv-tel','nv-ciu','nv-dir','nv-ced','nv-men','nv-obs','nv-ref','nv-flp'].forEach(id=>{ const el=$(id); if(el)el.value=''; });
   $('nv-fecha').value = today();
   $('nv-fecha').max = today();
   $('nv-dom').value = 12000;
@@ -1169,6 +1170,7 @@ async function submitVenta() {
     estado_pago:getToggle('tg-pago'),
     estado_pedido:'Pendiente',
     observaciones:_ref?`[Ref. pago: ${_ref}]${_obs?' — '+_obs:''}`:_obs,
+    fecha_limite_pago:$('nv-flp').value||'',
     productos:validLines.map(l=>({sku:l.sku,cantidad:l.cant,precio_unitario:l.precio}))
   };
 
@@ -1355,13 +1357,24 @@ async function loadDeudores() {
 
   const hoyMs=Date.now();
   $('d-list').innerHTML=deudores.map(v=>{
-    const dias=v.Fecha?Math.max(0,Math.floor((hoyMs-new Date(v.Fecha+'T12:00:00').getTime())/86400000)):0;
-    const agCol=dias>=8?'#E87070':dias>=4?'#D4A017':'var(--gm)';
+    let plazoTxt='', plazoCol='var(--gm)';
+    if(v.Fecha_Limite_Pago){
+      const limMs=new Date(v.Fecha_Limite_Pago+'T12:00:00').getTime();
+      const diffD=Math.floor((limMs-hoyMs)/86400000);
+      if(diffD<0){ plazoTxt=`vencido hace ${Math.abs(diffD)}d`; plazoCol='#E87070'; }
+      else if(diffD===0){ plazoTxt='vence hoy'; plazoCol='#D4A017'; }
+      else if(diffD<=3){ plazoTxt=`vence en ${diffD}d`; plazoCol='#D4A017'; }
+      else { plazoTxt=`vence ${fDate(v.Fecha_Limite_Pago)}`; plazoCol='#4CAF7A'; }
+    } else {
+      const dias=v.Fecha?Math.max(0,Math.floor((hoyMs-new Date(v.Fecha+'T12:00:00').getTime())/86400000)):0;
+      plazoCol=dias>=8?'#E87070':dias>=4?'#D4A017':'var(--gm)';
+      plazoTxt=`debe hace ${dias}d`;
+    }
     return `
     <div class="vc" onclick="showVD('${v.ID_Factura}')">
       <div class="vc-hd"><span class="vc-id">${v.ID_Factura} · ${fDate(v.Fecha)}</span><span class="bdg ${badgePago(v.Estado_Pago)}">${v.Estado_Pago}</span></div>
       <div class="vc-cl">${v.Cliente||'—'}</div>
-      <div class="vc-mt">${v.Ciudad||''} ${v.Mensajero?'· '+v.Mensajero:''} · <span style="color:${agCol};font-weight:600">debe hace ${dias}d</span></div>
+      <div class="vc-mt">${v.Ciudad||''} ${v.Mensajero?'· '+v.Mensajero:''} · <span style="color:${plazoCol};font-weight:600">${plazoTxt}</span></div>
       <div class="vc-ft"><span class="bdg ${badgePedido(v.Estado_Pedido)}">${v.Estado_Pedido}</span><span class="vc-tot" style="color:#E87070">${fCOP(v.Total_Factura)}</span></div>
     </div>`;
   }).join('');
@@ -1386,6 +1399,7 @@ function showVD(id) {
     <div class="dr"><span class="dr-k">Pedido</span><span class="dr-v"><span class="bdg ${badgePedido(v.Estado_Pedido)}">${v.Estado_Pedido}</span></span></div>
     <div class="dr"><span class="dr-k">Tipo precio</span><span class="dr-v"><span class="bdg ${v.Tipo_Precio==='Mayorista'?'b-may':'b-det'}">${v.Tipo_Precio}</span></span></div>
     <div class="dr"><span class="dr-k">Domicilio</span><span class="dr-v">${fCOP(v.Costo_Domicilio)} · ${v.Quien_Paga_Domicilio}</span></div>
+    ${v.Fecha_Limite_Pago?`<div class="dr"><span class="dr-k">Plazo pago</span><span class="dr-v" style="font-weight:600;color:${new Date(v.Fecha_Limite_Pago+'T12:00:00')<new Date()?'#E87070':'#4CAF7A'}">${fDate(v.Fecha_Limite_Pago)}</span></div>`:''}
     ${v.Observaciones?`<div class="dr"><span class="dr-k">Obs.</span><span class="dr-v">${v.Observaciones}</span></div>`:''}
     <div class="dr" style="margin-top:4px"><span class="dr-k" style="font-size:14px;color:var(--ws)">TOTAL</span><span class="dr-v" style="font-family:var(--ft);font-weight:900;font-size:20px">${fCOP(v.Total_Factura)}</span></div>
     ${(v.productos||[]).length?`
@@ -1418,16 +1432,6 @@ function showVD(id) {
   openModal('modal-vd');
 }
 
-async function anularVenta(id) {
-  const v=_ventas.find(x=>x.ID_Factura===id);
-  const quien=v&&v.Cliente?` de ${v.Cliente}`:'';
-  if(!confirm(`¿Anular el pedido ${id}${quien}?\n\nSe marca como Cancelado: el producto vuelve a bodega y sale de ventas y deudores. Podrás reactivarlo después si fue un error.`)) return;
-  showLoad(true);
-  const r=await api('updateVenta',{id_factura:id,updates:{Estado_Pedido:'Cancelado'}});
-  showLoad(false);
-  if(r.success){ toast('Pedido anulado ✓'); closeModal('modal-vd'); loadVentas(); }
-  else toast(r.error||'Error al anular',true);
-}
 
 async function reactivarVenta(id) {
   showLoad(true);
