@@ -905,8 +905,6 @@ async function initApp() {
 }
 
 function populateSkuSelects() {
-  const opts = '<option value="">Seleccionar...</option>' + productos.map(p=>`<option value="${p.SKU}">${p.SKU} — ${p.Nombre}</option>`).join('');
-  $('com-sku').innerHTML = opts;
   renderLines();
 }
 
@@ -1092,7 +1090,7 @@ function tog(id, btn) {
   }
   if(id==='tg-precio'){
     const tp = btn.dataset.v;
-    lines.forEach(l=>{ if(l.sku){ const p=productos.find(x=>x.SKU===l.sku); if(p) l.precio=tp==='Mayorista'?(parseFloat(p.Precio_Mayorista)||0):(parseFloat(p.Precio_Detal)||0); } });
+    lines.forEach(l=>{ if(l.sku){ const p=productos.find(x=>String(x.SKU)===String(l.sku)); if(p) l.precio=tp==='Mayorista'?(parseFloat(p.Precio_Mayorista)||0):(parseFloat(p.Precio_Detal)||0); } });
     renderLines();
   }
   if(id==='tg-pago'){
