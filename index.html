@@ -614,7 +614,10 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
     <section class="sc" id="sc-inv">
       <div class="sh">
         <span class="sh-t">Stock actual</span>
-        <button class="btn btn-p btn-sm" onclick="openCompra()">+ Compra</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-g btn-sm" onclick="downloadInventarioXLSX()">⬇ Excel</button>
+          <button class="btn btn-p btn-sm" onclick="openCompra()">+ Compra</button>
+        </div>
       </div>
       <div class="card" id="inv-list"><div class="ld"><div class="sp"></div></div></div>
     </section>
@@ -1932,6 +1935,66 @@ async function loadInv() {
         </div>
       </div>`;
     }).join('');
+}
+
+function xlsxBlob(headers, rows, sheetName) {
+  const te = new TextEncoder();
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const colL = i => { let s='',n=i+1; while(n>0){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26);} return s; };
+  let sx = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  sx += '<row r="1">' + headers.map((h,i) => `<c r="${colL(i)}1" t="inlineStr"><is><t>${esc(h)}</t></is></c>`).join('') + '</row>';
+  rows.forEach((r,ri) => {
+    sx += `<row r="${ri+2}">` + r.map((v,ci) => {
+      const ref = colL(ci)+(ri+2);
+      return typeof v==='number' ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+    }).join('') + '</row>';
+  });
+  sx += '</sheetData></worksheet>';
+  const xmlF = {
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': sx
+  };
+  const crcT = new Uint32Array(256);
+  for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;crcT[i]=c;}
+  const crc32 = buf => { let c=0xFFFFFFFF; for(let i=0;i<buf.length;i++)c=crcT[(c^buf[i])&0xFF]^(c>>>8); return(c^0xFFFFFFFF)>>>0; };
+  const parts=[],cdParts=[];let off=0;
+  for(const [name,content] of Object.entries(xmlF)){
+    const nb=te.encode(name),db=te.encode(content),cr=crc32(db);
+    const lh=new Uint8Array(30),lv=new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint32(14,cr,true);
+    lv.setUint32(18,db.length,true);lv.setUint32(22,db.length,true);lv.setUint16(26,nb.length,true);
+    parts.push(lh,nb,db);
+    const ch=new Uint8Array(46),cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);
+    cv.setUint32(16,cr,true);cv.setUint32(20,db.length,true);cv.setUint32(24,db.length,true);
+    cv.setUint16(28,nb.length,true);cv.setUint32(42,off,true);
+    cdParts.push(ch,nb);
+    off+=30+nb.length+db.length;
+  }
+  const cdSize=cdParts.reduce((s,p)=>s+p.length,0),nE=Object.keys(xmlF).length;
+  const eocd=new Uint8Array(22),ev=new DataView(eocd.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(8,nE,true);ev.setUint16(10,nE,true);
+  ev.setUint32(12,cdSize,true);ev.setUint32(16,off,true);
+  return new Blob([...parts,...cdParts,eocd],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+
+function downloadInventarioXLSX() {
+  if(!_inv.length) return toast('No hay inventario para exportar',true);
+  const inv=[..._inv].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  const headers=['SKU','Nombre','Marca','Tamaño ml','Stock Actual','Stock Mínimo','Costo Promedio','Valor Inventario','Precio Detal','Precio Mayorista'];
+  const rows=inv.map(p=>{
+    const prod=productos.find(x=>String(x.SKU)===String(p.sku));
+    return [String(p.sku||''),p.nombre||'',p.marca||'',p.tamano_ml?String(p.tamano_ml):'',
+      p.stock_actual||0,p.stock_minimo||0,Math.round(p.costo_promedio||0),Math.round(p.valor_inventario||0),
+      parseFloat(prod?.Precio_Detal)||0,parseFloat(prod?.Precio_Mayorista)||0];
+  });
+  const blob=xlsxBlob(headers,rows,'Inventario');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='viiena_inventario_'+today()+'.xlsx'; a.click();
+  toast(`${inv.length} productos exportados ✓`);
 }
 
 let comLines = [];
