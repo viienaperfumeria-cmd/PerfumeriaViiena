@@ -108,6 +108,11 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .vp.on.vp-entr{background:#0C1E18;border-color:#4CAF7A;color:#4CAF7A}
 .vp.on.vp-dev{background:#1E0C0C;border-color:#E87070;color:#E87070}
 .vp.on.vp-canc{background:#161616;border-color:#606060;color:#909090}
+.cli-drop{position:absolute;left:0;right:0;top:100%;background:var(--card);border:1px solid var(--bd);border-top:none;border-radius:0 0 10px 10px;max-height:220px;overflow-y:auto;z-index:50}
+.cli-it{padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bd)}
+.cli-it:active{background:var(--gd)}
+.cli-nm{font-size:13px;font-weight:600}
+.cli-inf{font-size:11px;color:var(--gm);margin-top:1px}
 
 /* ── BUTTONS ───────────────────────────────────────────────────── */
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:12px;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:.15s;width:100%;margin-top:8px}
@@ -415,7 +420,7 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
           </div>
         </div>
         <div class="frow">
-          <div class="fg"><label class="fl">Nombre *</label><input id="nv-cli" class="fi" placeholder="Cliente" autocomplete="off"></div>
+          <div class="fg" style="position:relative"><label class="fl">Nombre *</label><input id="nv-cli" class="fi" placeholder="Cliente" autocomplete="off" oninput="onCliInput()"><div id="cli-drop" class="cli-drop h"></div></div>
           <div class="fg"><label class="fl">Teléfono *</label><input id="nv-tel" class="fi" type="tel" placeholder="3XX..."></div>
         </div>
         <div class="fg" id="nv-ciudad-row" style="display:none">
@@ -782,6 +787,8 @@ let lid = 0;
 let lastVenta = null;
 let activePeriod = 'mes';
 let _ventas = [];
+let _clientes = [];
+let _cliFiltered = [];
 
 // ── API ──────────────────────────────────────────────────────────
 async function api(action, data = {}) {
@@ -898,9 +905,9 @@ async function initApp() {
   $('g-fecha').value = today();
   $('ban-fecha').value = today();
   $('com-fecha').value = today();
-  // Load products (needed everywhere)
-  const r = await api('getProductos');
-  if(r.success){ productos = r.data; populateSkuSelects(); }
+  const [rp, rv] = await Promise.all([api('getProductos'), api('getVentas',{})]);
+  if(rp.success){ productos = rp.data; populateSkuSelects(); }
+  if(rv.success){ _ventas = rv.data; buildClientes(rv.data); }
   goto('home');
 }
 
@@ -1076,6 +1083,61 @@ function initNV() {
 function resetTg(id, val) {
   const grp = $(id); if(!grp)return;
   grp.querySelectorAll('.to').forEach(b=>{ b.classList.toggle('on', b.dataset.v===val); });
+}
+
+function buildClientes(ventas) {
+  const map = {};
+  ventas.forEach(v => {
+    if(v.Estado_Pedido==='Cancelado') return;
+    const nom = (v.Cliente||'').trim();
+    if(!nom) return;
+    const tel = String(v.Telefono||'').replace(/\D/g,'');
+    const key = tel || nom.toLowerCase();
+    if(!map[key]) {
+      map[key] = {nombre:nom, telefono:v.Telefono||'', ciudad:v.Ciudad||'', direccion:v.Barrio_Direccion||'', cedula:v.Cedula||'', n:1};
+    } else {
+      map[key].n++;
+      if(nom) map[key].nombre = nom;
+      if(v.Telefono) map[key].telefono = v.Telefono;
+      if(v.Ciudad) map[key].ciudad = v.Ciudad;
+      if(v.Barrio_Direccion) map[key].direccion = v.Barrio_Direccion;
+      if(v.Cedula) map[key].cedula = v.Cedula;
+    }
+  });
+  _clientes = Object.values(map).sort((a,b) => b.n - a.n);
+}
+
+function onCliInput() {
+  const q = ($('nv-cli').value||'').trim().toLowerCase();
+  const drop = $('cli-drop');
+  if(q.length < 2) { drop.classList.add('h'); return; }
+  _cliFiltered = _clientes.filter(c => c.nombre.toLowerCase().includes(q) || String(c.telefono).includes(q)).slice(0, 6);
+  if(!_cliFiltered.length) { drop.classList.add('h'); return; }
+  drop.innerHTML = _cliFiltered.map((c,i) => `<div class="cli-it" onclick="selectCli(${i})">
+    <div class="cli-nm">${c.nombre}</div>
+    <div class="cli-inf">${c.telefono}${c.ciudad?' · '+c.ciudad:''} · ${c.n} compra${c.n===1?'':'s'}</div>
+  </div>`).join('');
+  drop.classList.remove('h');
+}
+
+function selectCli(i) {
+  const c = _cliFiltered[i]; if(!c) return;
+  $('nv-cli').value = c.nombre;
+  $('nv-tel').value = c.telefono || '';
+  $('nv-dir').value = c.direccion || '';
+  if(c.cedula) $('nv-ced').value = c.cedula;
+  const esMed = !c.ciudad || normCity(c.ciudad)==='medellin';
+  if(!esMed) {
+    resetTg('tg-envio','Nacional');
+    $('nv-ciudad-row').style.display = 'block';
+    $('nv-ced-row').classList.remove('h');
+    $('nv-ciu').value = c.ciudad;
+  } else {
+    resetTg('tg-envio','Medellín');
+    $('nv-ciudad-row').style.display = 'none';
+    $('nv-ciu').value = 'Medellín';
+  }
+  $('cli-drop').classList.add('h');
 }
 
 function tog(id, btn) {
@@ -1380,6 +1442,12 @@ async function loadDeudores() {
   _ventas=[..._ventas,...deudores.filter(d=>!_ventas.find(v=>v.ID_Factura===d.ID_Factura))];
 }
 
+function verHistorial(cli) {
+  closeModal('modal-vd');
+  goto('ventas');
+  setTimeout(() => { $('v-q').value = cli; renderVentasList(); }, 300);
+}
+
 function showVD(id) {
   const v=_ventas.find(x=>x.ID_Factura===id); if(!v) return;
   $('vd-id').textContent=v.ID_Factura;
@@ -1387,7 +1455,7 @@ function showVD(id) {
   const telDig=String(v.Telefono||'').replace(/\D/g,'');
   const waTel=telDig?(telDig.length===10?'57'+telDig:telDig):'';
   $('vd-body').innerHTML=`
-    <div class="dr"><span class="dr-k">Cliente</span><span class="dr-v">${v.Cliente||'—'}</span></div>
+    <div class="dr"><span class="dr-k">Cliente</span><span class="dr-v"><a href="#" onclick="event.preventDefault();verHistorial(this.textContent)" style="color:var(--ws);text-decoration:underline;text-underline-offset:3px">${v.Cliente||'—'}</a></span></div>
     <div class="dr"><span class="dr-k">Teléfono</span><span class="dr-v">${waTel?`<a href="https://wa.me/${waTel}" target="_blank" rel="noopener" style="color:#4CAF7A;text-decoration:none;font-weight:600">${v.Telefono} 💬</a>`:(v.Telefono||'—')}</span></div>
     <div class="dr"><span class="dr-k">Ciudad</span><span class="dr-v">${v.Ciudad||'—'}</span></div>
     <div class="dr"><span class="dr-k">Dirección</span><span class="dr-v">${v.Barrio_Direccion||'—'}</span></div>
@@ -1943,6 +2011,7 @@ async function submitCompra() {
 document.querySelectorAll('.ov').forEach(ov=>{
   ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(ov.id); });
 });
+$('nv-cli').addEventListener('blur', () => setTimeout(()=>$('cli-drop').classList.add('h'), 200));
 </script>
 </body>
 </html>
