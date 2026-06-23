@@ -155,10 +155,10 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .vc-mt{font-size:12px;color:var(--gm)}
 .vc-ft{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
 .vc-tot{font-family:var(--ft);font-weight:900;font-size:17px}
-.vc-chk{position:absolute;top:10px;right:10px;z-index:2;width:20px;height:20px;cursor:pointer;accent-color:var(--pr)}
+.vc-chk{width:16px;height:16px;cursor:pointer;accent-color:var(--pr);flex-shrink:0;margin:0}
 .vc.sel{border-color:var(--pr)}
-.bulk-bar{position:fixed;bottom:var(--nav);left:0;right:0;background:var(--card);border-top:1px solid var(--pr);padding:5px 10px;z-index:300;display:flex;align-items:center;gap:6px;box-shadow:0 -2px 10px rgba(0,0,0,.3);transform:translateY(100%);transition:transform .2s ease}
-.bulk-bar.show{transform:translateY(0)}
+.bulk-bar{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 10px;margin-top:8px;display:none;align-items:center;gap:6px}
+.bulk-bar.show{display:flex}
 .bulk-cnt{font-size:11px;font-weight:700;color:var(--pr);white-space:nowrap}
 .bulk-bar select{flex:1;min-width:0;font-size:11px;padding:5px 4px}
 .bulk-bar .bbtn{background:transparent;border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:12px;padding:5px 10px;cursor:pointer;white-space:nowrap}
@@ -535,15 +535,14 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
           <button onclick="downloadVentasCSV()" style="background:transparent;border:1px solid var(--bd);border-radius:10px;color:var(--gm);font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;flex-shrink:0">⬇ Excel</button>
         </div>
         <div id="v-list"><div class="ld"><div class="sp"></div></div></div>
-      </div>
-
-      <div id="bulk-bar" class="bulk-bar">
-        <span class="bulk-cnt"><span id="bulk-count">0</span> sel.</span>
-        <select id="bulk-ep" class="fi"><option value="">Pedido…</option><option value="Pendiente">Pendiente</option><option value="Entregado">Entregado</option><option value="Devolucion">Devolución</option><option value="Cancelado">Cancelado</option></select>
-        <select id="bulk-pago" class="fi"><option value="">Pago…</option><option value="Pagado">Pagado</option><option value="Contraentrega">Contraentrega</option><option value="Pendiente">Pendiente</option></select>
-        <button class="bbtn pri" onclick="bulkApply()">✓</button>
-        <button class="bbtn" onclick="downloadCuadreCSV()">⬇</button>
-        <button class="bbtn" style="color:#E87070" onclick="clearSelection()">✕</button>
+        <div id="bulk-bar" class="bulk-bar">
+          <span class="bulk-cnt"><span id="bulk-count">0</span> sel.</span>
+          <select id="bulk-ep" class="fi"><option value="">Pedido…</option><option value="Pendiente">Pendiente</option><option value="Entregado">Entregado</option><option value="Devolucion">Devolución</option><option value="Cancelado">Cancelado</option></select>
+          <select id="bulk-pago" class="fi"><option value="">Pago…</option><option value="Pagado">Pagado</option><option value="Contraentrega">Contraentrega</option><option value="Pendiente">Pendiente</option></select>
+          <button class="bbtn pri" onclick="bulkApply()">✓</button>
+          <button class="bbtn" onclick="downloadCuadreCSV()">⬇</button>
+          <button class="bbtn" style="color:#E87070" onclick="clearSelection()">✕</button>
+        </div>
       </div>
 
       <!-- Sub-tab Deudores -->
@@ -1351,9 +1350,8 @@ function renderVentasList() {
   const list=getVentasFiltradas();
   if(!list.length){ $('v-list').innerHTML='<div class="ld">No hay ventas para estos filtros</div>'; return; }
   $('v-list').innerHTML = list.map(v=>`
-    <div class="vc${_selected.has(v.ID_Factura)?' sel':''}" style="position:relative" onclick="showVD('${v.ID_Factura}')">
-      <input type="checkbox" class="vc-chk" ${_selected.has(v.ID_Factura)?'checked':''} onclick="event.stopPropagation();toggleSel('${v.ID_Factura}')">
-      <div class="vc-hd"><span class="vc-id">${v.ID_Factura} · ${fDate(v.Fecha)}</span><span class="bdg ${badgePago(v.Estado_Pago)}">${v.Estado_Pago}</span></div>
+    <div class="vc${_selected.has(v.ID_Factura)?' sel':''}" onclick="showVD('${v.ID_Factura}')">
+      <div class="vc-hd"><div style="display:flex;align-items:center;gap:6px"><input type="checkbox" class="vc-chk" ${_selected.has(v.ID_Factura)?'checked':''} onclick="event.stopPropagation();toggleSel('${v.ID_Factura}')"><span class="vc-id">${v.ID_Factura} · ${fDate(v.Fecha)}</span></div><span class="bdg ${badgePago(v.Estado_Pago)}">${v.Estado_Pago}</span></div>
       <div class="vc-cl">${v.Cliente||'—'}</div>
       <div class="vc-mt">${v.Ciudad||''} ${v.Mensajero?'· '+v.Mensajero:''}</div>
       <div class="vc-ft"><span class="bdg ${badgePedido(v.Estado_Pedido)}">${v.Estado_Pedido}</span><span class="vc-tot">${fCOP(v.Total_Factura)}</span></div>
@@ -1573,9 +1571,7 @@ function clearSelection() { _selected.clear(); renderVentasList(); }
 function updateBulkBar() {
   const n = _selected.size;
   $('bulk-count').textContent = n;
-  const on = n > 0;
-  $('bulk-bar').classList.toggle('show', on);
-  $('v-list').style.paddingBottom = on ? '44px' : '';
+  $('bulk-bar').classList.toggle('show', n > 0);
 }
 
 async function bulkApply() {
