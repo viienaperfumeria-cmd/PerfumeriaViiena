@@ -155,6 +155,14 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .vc-mt{font-size:12px;color:var(--gm)}
 .vc-ft{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
 .vc-tot{font-family:var(--ft);font-weight:900;font-size:17px}
+.vc-chk{position:absolute;top:10px;right:10px;z-index:2;width:22px;height:22px;cursor:pointer;accent-color:var(--pr)}
+.vc.sel{border-color:var(--pr)}
+.bulk-bar{position:fixed;bottom:var(--nav);left:0;right:0;background:var(--card);border-top:2px solid var(--pr);padding:10px 14px;z-index:300;display:flex;flex-direction:column;gap:8px;box-shadow:0 -4px 24px rgba(0,0,0,.6);transform:translateY(100%);transition:transform .2s ease}
+.bulk-bar.show{transform:translateY(0)}
+.bulk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bulk-cnt{font-size:13px;font-weight:700;color:var(--pr);white-space:nowrap}
+.bulk-bar select{flex:1;min-width:0}
+.bulk-bar .btn{padding:8px 14px;font-size:12px;white-space:nowrap}
 
 /* ── FILTERS ───────────────────────────────────────────────────── */
 .fil-bar{display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px}
@@ -529,6 +537,19 @@ select.fi{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
         <div id="v-list"><div class="ld"><div class="sp"></div></div></div>
       </div>
 
+      <div id="bulk-bar" class="bulk-bar">
+        <div class="bulk-row">
+          <span class="bulk-cnt"><span id="bulk-count">0</span> seleccionadas</span>
+          <select id="bulk-ep" class="fi" style="font-size:12px;padding:6px 8px"><option value="">Estado pedido…</option><option value="Pendiente">Pendiente</option><option value="Entregado">Entregado</option><option value="Devolucion">Devolución</option><option value="Cancelado">Cancelado</option></select>
+          <select id="bulk-pago" class="fi" style="font-size:12px;padding:6px 8px"><option value="">Estado pago…</option><option value="Pagado">Pagado</option><option value="Contraentrega">Contraentrega</option><option value="Pendiente">Pendiente</option></select>
+        </div>
+        <div class="bulk-row">
+          <button class="btn btn-p" onclick="bulkApply()">Aplicar</button>
+          <button class="btn btn-g" onclick="downloadCuadreCSV()">⬇ Cuadre</button>
+          <button class="btn btn-g" style="color:#E87070;border-color:#3a1c1c" onclick="clearSelection()">✕ Quitar</button>
+        </div>
+      </div>
+
       <!-- Sub-tab Deudores -->
       <div id="vtab-deudores" class="h">
         <div id="d-summary" style="margin-bottom:12px"></div>
@@ -790,6 +811,7 @@ let lid = 0;
 let lastVenta = null;
 let activePeriod = 'mes';
 let _ventas = [];
+const _selected = new Set();
 let _clientes = [];
 let _cliFiltered = [];
 
@@ -1296,6 +1318,7 @@ function printRotulo(v) {
 
 // ── VENTAS LIST ──────────────────────────────────────────────────
 async function loadVentas() {
+  _selected.clear();
   $('v-list').innerHTML='<div class="ld"><div class="sp"></div></div>';
   const params={};
   if($('v-fecha').value){ params.fecha_inicio=$('v-fecha').value; params.fecha_fin=$('v-fecha').value; }
@@ -1332,12 +1355,14 @@ function renderVentasList() {
   const list=getVentasFiltradas();
   if(!list.length){ $('v-list').innerHTML='<div class="ld">No hay ventas para estos filtros</div>'; return; }
   $('v-list').innerHTML = list.map(v=>`
-    <div class="vc" onclick="showVD('${v.ID_Factura}')">
+    <div class="vc${_selected.has(v.ID_Factura)?' sel':''}" style="position:relative" onclick="showVD('${v.ID_Factura}')">
+      <input type="checkbox" class="vc-chk" ${_selected.has(v.ID_Factura)?'checked':''} onclick="event.stopPropagation();toggleSel('${v.ID_Factura}')">
       <div class="vc-hd"><span class="vc-id">${v.ID_Factura} · ${fDate(v.Fecha)}</span><span class="bdg ${badgePago(v.Estado_Pago)}">${v.Estado_Pago}</span></div>
       <div class="vc-cl">${v.Cliente||'—'}</div>
       <div class="vc-mt">${v.Ciudad||''} ${v.Mensajero?'· '+v.Mensajero:''}</div>
       <div class="vc-ft"><span class="bdg ${badgePedido(v.Estado_Pedido)}">${v.Estado_Pedido}</span><span class="vc-tot">${fCOP(v.Total_Factura)}</span></div>
     </div>`).join('');
+  updateBulkBar();
 }
 function downloadVentasCSV() {
   const list=getVentasFiltradas();
@@ -1493,7 +1518,7 @@ function showVD(id) {
         <select id="vd-new-ep" class="fi">${estados.map(e=>`<option value="${e}">${e}</option>`).join('')}</select>
         <button class="btn btn-g" style="margin-top:8px" onclick="updateEP('${v.ID_Factura}')">Actualizar estado</button>
       </div>
-      ${v.Estado_Pago!=='Pagado'?`<button class="btn btn-p" onclick="marcarPagado('${v.ID_Factura}')">✓ Marcar como pagado</button>`:''}
+      ${v.Estado_Pago!=='Pagado'?`<button class="btn btn-p" onclick="marcarPagado('${v.ID_Factura}')">✓ Marcar como pagado</button>`:`<button class="btn btn-g" style="color:#D4A017;border-color:#3a3020" onclick="deshacerPago('${v.ID_Factura}')">↩ Deshacer pago</button>`}
       <button class="btn btn-g" onclick="printFromDetail('${v.ID_Factura}')">🖨 Imprimir rótulo</button>
       <button class="btn btn-g" style="color:#E87070;border-color:#3a1c1c" onclick="anularVenta('${v.ID_Factura}')">✕ Anular pedido (no se vendió)</button>`;
   }
@@ -1532,6 +1557,68 @@ async function marcarPagado(id) {
   } else {
     toast(r.error||'Error al actualizar pago',true);
   }
+}
+
+async function deshacerPago(id) {
+  const ok = await customConfirm('Deshacer pago ' + id, 'Se revierte a Contraentrega y se desvincula del movimiento bancario.');
+  if(!ok) return;
+  showLoad(true);
+  const r = await api('updateVenta',{id_factura:id,updates:{Estado_Pago:'Contraentrega',ID_Banco_Referencia:''}});
+  showLoad(false);
+  if(r.success){ toast('Pago revertido ✓'); closeModal('modal-vd'); loadVentas(); }
+  else toast(r.error||'Error',true);
+}
+
+function toggleSel(id) {
+  if(_selected.has(id)) _selected.delete(id); else _selected.add(id);
+  renderVentasList();
+}
+function clearSelection() { _selected.clear(); renderVentasList(); }
+function updateBulkBar() {
+  const n = _selected.size;
+  $('bulk-count').textContent = n;
+  $('bulk-bar').classList.toggle('show', n > 0);
+}
+
+async function bulkApply() {
+  const ep = $('bulk-ep').value;
+  const epago = $('bulk-pago').value;
+  if(!ep && !epago){ toast('Selecciona al menos un estado',true); return; }
+  const ids = [..._selected];
+  const updates = {};
+  if(ep) updates.Estado_Pedido = ep;
+  if(epago) updates.Estado_Pago = epago;
+  const ok = await customConfirm('Actualizar ' + ids.length + ' facturas', 'Se aplicará: ' + (ep?'Pedido→'+ep+' ':'') + (epago?'Pago→'+epago:''));
+  if(!ok) return;
+  showLoad(true);
+  const r = await api('bulkUpdateVentas',{ids, updates});
+  showLoad(false);
+  if(r.success){ toast(r.data.updated + ' facturas actualizadas ✓'); _selected.clear(); $('bulk-ep').value=''; $('bulk-pago').value=''; loadVentas(); }
+  else toast(r.error||'Error',true);
+}
+
+function downloadCuadreCSV() {
+  const ids = [..._selected];
+  if(!ids.length){ toast('Selecciona facturas primero',true); return; }
+  const ventas = ids.map(id => _ventas.find(v=>v.ID_Factura===id)).filter(Boolean);
+  if(!ventas.length){ toast('No se encontraron facturas',true); return; }
+  const esc = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const heads = ['Factura','Fecha','Cliente','Ciudad','Mensajero','Estado Pago','Costo Domicilio','Total Factura'];
+  const rows = ventas.map((v,i) => [v.ID_Factura,v.Fecha,v.Cliente,v.Ciudad,v.Mensajero,v.Estado_Pago,v.Costo_Domicilio||0,v.Total_Factura||0].map(esc).join(','));
+  const n = ventas.length;
+  const dataStart = 2;
+  const dataEnd = dataStart + n - 1;
+  const colG = 'G', colH = 'H', colF = 'F';
+  const blankRow = ',,,,,,, ';
+  const cobrado = `"TOTAL COBRADO POR MENSAJERO",,,,,,,"=SUMPRODUCT((${colF}${dataStart}:${colF}${dataEnd}=""Contraentrega"")*(${colH}${dataStart}:${colH}${dataEnd}))"`;
+  const flete   = `"FLETE A PAGAR AL MENSAJERO",,,,,,,"=SUM(${colG}${dataStart}:${colG}${dataEnd})"`;
+  const neto    = `"NETO A ENTREGAR",,,,,,,"=${colH}${dataEnd+2}-${colH}${dataEnd+3}"`;
+  const csv = '﻿' + heads.map(esc).join(',') + '\n' + rows.join('\n') + '\n' + blankRow + '\n' + cobrado + '\n' + flete + '\n' + neto;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download = 'viiena_cuadre_mensajero_' + today() + '.csv';
+  a.click();
+  toast('Cuadre descargado ✓');
 }
 
 function printFromDetail(id) {
