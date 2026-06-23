@@ -1573,7 +1573,9 @@ function clearSelection() { _selected.clear(); renderVentasList(); }
 function updateBulkBar() {
   const n = _selected.size;
   $('bulk-count').textContent = n;
-  $('bulk-bar').classList.toggle('show', n > 0);
+  const on = n > 0;
+  $('bulk-bar').classList.toggle('show', on);
+  $('v-list').style.paddingBottom = on ? '44px' : '';
 }
 
 async function bulkApply() {
